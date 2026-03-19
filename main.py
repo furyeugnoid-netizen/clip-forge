@@ -6,7 +6,7 @@ from datetime import datetime
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 DATABASE_FILE = 'clip_forge_data.json'
 PAYMENT_RATE = 0.001
