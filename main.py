@@ -14,7 +14,6 @@ PAYMENT_RATE = 0.001
 CYAN = 0x00ffff
 LIGHT_CYAN = 0x00d4ff
 DARK_BLUE = 0x0099ff
-DARK_BG = 0x0a0a14
 
 def load_database():
     try:
