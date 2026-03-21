@@ -1,4 +1,4 @@
-import discord
++import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 import asyncpg
@@ -918,7 +918,7 @@ async def create_ticket(interaction, category):
         async with pool.acquire() as c:
             await c.execute("INSERT INTO tickets(user_id,channel_id,category) VALUES($1,$2,$3)", uid, str(channel.id), category)
 
-        e = emb(f"{cat_info['emoji']} {cat_info['label']}", f"**Created by:** {interaction.user.mention}\n**Category:** {cat_info['label']}\n\n━━━━━━━━━━━━━━━━━━━━━\n\nPlease describe your issue below.\nA staff member will respond shortly.\n\nClick **🔒 Close Ticket** when resolved.")
+        e = emb(f"{cat_info['emoji']} {cat_info['label']}", f"**Created by:** {interaction.user.mention}\n**Category:** {cat_info['label']}\n\n━━━━━━━━━━━━━━━━━━━━━\n\nPlease describe your issue below.\nA staff member will respond shortly.\n\n🔒 Only admins can close this ticket.")
         await channel.send(embed=e, view=TicketControlView())
         await channel.send(f"{interaction.user.mention} your ticket is ready!")
         await interaction.response.send_message(f"✅ Ticket created! → {channel.mention}", ephemeral=True)
@@ -926,20 +926,162 @@ async def create_ticket(interaction, category):
         print(f"Ticket error: {ex}")
         await interaction.response.send_message("❌ Error creating ticket.", ephemeral=True)
 
+def is_staff(member):
+    """Check if member is admin or has support role"""
+    if member.guild_permissions.administrator:
+        return True
+    support_roles = ["support", "staff", "mod", "moderator", "forge support"]
+    return any(role.name.lower() in support_roles for role in member.roles)
+
 class TicketControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.danger, custom_id="p_close_ticket")
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="🎫 Claim Ticket", style=discord.ButtonStyle.success, custom_id="p_claim_ticket")
+    async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            await interaction.response.send_message("❌ Staff or Admin only!", ephemeral=True)
+            return
+
         pool = await get_db()
         async with pool.acquire() as c:
-            await c.execute("UPDATE tickets SET status='closed' WHERE channel_id=$1", str(interaction.channel.id))
-        e = emb("🔒 Ticket Closed", f"Closed by {interaction.user.mention}\nChannel deletes in 10 seconds.")
-        await interaction.response.send_message(embed=e)
-        await asyncio.sleep(10)
+            ticket = await c.fetchrow("SELECT * FROM tickets WHERE channel_id=$1", str(interaction.channel.id))
+
+        if not ticket:
+            await interaction.response.send_message("❌ Ticket not found!", ephemeral=True)
+            return
+
+        # Get ticket category
+        cat = ticket.get("category", "general")
+        cat_info = TICKET_CATEGORIES.get(cat, TICKET_CATEGORIES["general"])
+
+        # Update embed to show claimed
+        claim_embed = discord.Embed(
+            title=f"🎫 Ticket Claimed",
+            description=f"**Claimed by:** {interaction.user.mention}\n**Category:** {cat_info['label']}\n\nStaff is now handling this ticket.",
+            color=GREEN
+        )
+        footer(claim_embed)
+        await interaction.response.send_message(embed=claim_embed)
+
+        # DM the user
         try:
-            await interaction.channel.delete()
+            user = await bot.fetch_user(int(ticket["user_id"]))
+            dm_embed = discord.Embed(
+                title="🎫 Your Ticket Has Been Claimed",
+                description=(
+                    f"Our team has picked up your ticket and is working on it.\n\n"
+                    f"**Category:** {cat_info['label']}\n"
+                    f"**Claimed by:** {interaction.user.name}\n\n"
+                    f"You'll receive updates as staff responds."
+                ),
+                color=GREEN
+            )
+            footer(dm_embed)
+            await user.send(embed=dm_embed)
+        except:
+            pass
+
+    @discord.ui.button(label="💬 Reply to User", style=discord.ButtonStyle.primary, custom_id="p_reply_ticket")
+    async def reply(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            await interaction.response.send_message("❌ Staff or Admin only!", ephemeral=True)
+            return
+        await interaction.response.send_modal(TicketReplyModal())
+
+    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.danger, custom_id="p_close_ticket")
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            await interaction.response.send_message("❌ Staff or Admin only!", ephemeral=True)
+            return
+
+        pool = await get_db()
+        async with pool.acquire() as c:
+            ticket = await c.fetchrow("SELECT * FROM tickets WHERE channel_id=$1", str(interaction.channel.id))
+            await c.execute("UPDATE tickets SET status='closed' WHERE channel_id=$1", str(interaction.channel.id))
+
+        # DM user that ticket is closed
+        if ticket:
+            cat = ticket.get("category", "general")
+            cat_info = TICKET_CATEGORIES.get(cat, TICKET_CATEGORIES["general"])
+            try:
+                user = await bot.fetch_user(int(ticket["user_id"]))
+                dm_embed = discord.Embed(
+                    title=f"🔒 Ticket Closed — {cat_info['label']}",
+                    description=(
+                        f"Your ticket has been resolved and closed.\n\n"
+                        f"**Category:** {cat_info['label']}\n"
+                        f"**Closed by:** {interaction.user.name}\n\n"
+                        f"If you need more help, create a new ticket!"
+                    ),
+                    color=RED
+                )
+                footer(dm_embed)
+                await user.send(embed=dm_embed)
+            except:
+                pass
+
+        e = emb("🔒 Ticket Closed", f"Closed by {interaction.user.mention}\nUser access has been removed. Ticket data preserved.")
+        await interaction.response.send_message(embed=e)
+
+        # Remove user's access to channel instead of deleting
+        if ticket:
+            try:
+                member = interaction.guild.get_member(int(ticket["user_id"]))
+                if member:
+                    await interaction.channel.set_permissions(member, read_messages=False, send_messages=False)
+            except:
+                pass
+
+
+class TicketReplyModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(title="Reply to Ticket")
+        self.reply_text = discord.ui.TextInput(
+            label="Your response",
+            placeholder="Type your reply to the user...",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=2000
+        )
+        self.add_item(self.reply_text)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        pool = await get_db()
+        async with pool.acquire() as c:
+            ticket = await c.fetchrow("SELECT * FROM tickets WHERE channel_id=$1", str(interaction.channel.id))
+
+        if not ticket:
+            await interaction.response.send_message("❌ Ticket not found!", ephemeral=True)
+            return
+
+        cat = ticket.get("category", "general")
+        cat_info = TICKET_CATEGORIES.get(cat, TICKET_CATEGORIES["general"])
+
+        # Post reply in ticket channel
+        reply_embed = discord.Embed(
+            title="💬 Staff Response",
+            description=f"**From:** {interaction.user.mention}\n\n{self.reply_text.value}",
+            color=CYAN
+        )
+        footer(reply_embed)
+        await interaction.response.send_message(embed=reply_embed)
+
+        # DM the user
+        try:
+            user = await bot.fetch_user(int(ticket["user_id"]))
+            dm_embed = discord.Embed(
+                title="💬 Support Replied to Your Ticket",
+                description=(
+                    f"Our team just sent you a response.\n\n"
+                    f"**Category:** {cat_info['label']}\n"
+                    f"**From:** {interaction.user.name}\n\n"
+                    f"**Response:**\n{self.reply_text.value}"
+                ),
+                color=CYAN
+            )
+            footer(dm_embed)
+            await user.send(embed=dm_embed)
         except:
             pass
 
@@ -947,7 +1089,7 @@ class TicketControlView(discord.ui.View):
 
 def build_help():
     e = discord.Embed(title="📚 Admin Commands", color=MAIN_COLOR)
-    e.add_field(name="📌 Panels", value="`/postpanel` `/postprofile` `/postcampaign` `/posttier` `/postticket`", inline=False)
+    e.add_field(name="📌 Panels", value="`/postpanel` `/postprofile` `/postcampaign` `/posttier` `/postticket` `/postsuggestions` `/postrules` `/postfaq` `/postguide`", inline=False)
     e.add_field(name="🎯 Campaign", value="`/campaignlb` `/endcampaign` `/setlimit`", inline=False)
     e.add_field(name="💸 Payouts", value="`/sendpayout` `/pendingpayouts` `/payouthistory`", inline=False)
     e.add_field(name="🚫 Moderation", value="`/ban` `/unban` `/banlist` `/settier`", inline=False)
@@ -1027,6 +1169,7 @@ async def on_ready():
     bot.add_view(CampaignView())
     bot.add_view(TicketView())
     bot.add_view(TicketControlView())
+    bot.add_view(SuggestionView())
     bot.add_view(ProfilePanelView())
     try:
         s = await bot.tree.sync()
@@ -1378,6 +1521,281 @@ async def s_colors(i: discord.Interaction):
 @app_commands.checks.has_permissions(administrator=True)
 async def s_help(i: discord.Interaction):
     await i.response.send_message(embed=build_help(), ephemeral=True)
+
+# ═══════════════ SUGGESTIONS ═══════════════
+
+class SuggestionView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="💡 Submit Suggestion", style=discord.ButtonStyle.success, custom_id="p_suggest")
+    async def suggest(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(SuggestionModal())
+
+class SuggestionModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(title="Submit a Suggestion")
+        self.suggestion = discord.ui.TextInput(
+            label="Your suggestion",
+            placeholder="What would make Clip Forge better?",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=2000
+        )
+        self.add_item(self.suggestion)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="💡 New Suggestion",
+            description=self.suggestion.value,
+            color=0xFFD700
+        )
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url if interaction.user.display_avatar else None)
+        embed.set_footer(text=f"From {interaction.user.name} • React to vote!")
+
+        msg = await interaction.channel.send(embed=embed)
+        await msg.add_reaction("👍")
+        await msg.add_reaction("👎")
+
+        await interaction.response.send_message("✅ Suggestion submitted! Others can vote on it.", ephemeral=True)
+
+@bot.tree.command(name="postsuggestions", description="[Admin] Post suggestions panel")
+@app_commands.checks.has_permissions(administrator=True)
+async def s_postsuggestions(i: discord.Interaction):
+    embed = discord.Embed(
+        title="💡 Suggestions",
+        description=(
+            "Have an idea to make Clip Forge better?\n\n"
+            "Click the button below to submit your suggestion. "
+            "Other members can vote with 👍 or 👎.\n\n"
+            "**Good suggestions include:**\n"
+            "• New features you'd like to see\n"
+            "• Campaign improvements\n"
+            "• Server improvements\n"
+            "• Payment system ideas\n"
+            "• Anything that helps the community\n\n"
+            "Top voted suggestions will be reviewed by staff! ⭐"
+        ),
+        color=0xFFD700
+    )
+    footer(embed)
+    await i.channel.send(embed=embed, view=SuggestionView())
+    await i.response.send_message("✅ Suggestions panel posted!", ephemeral=True)
+
+# ═══════════════ RULES / FAQ / GUIDE ═══════════════
+
+@bot.tree.command(name="postrules", description="[Admin] Post all server rules")
+@app_commands.checks.has_permissions(administrator=True)
+async def s_postrules(i: discord.Interaction):
+    await i.response.defer(ephemeral=True)
+    ch = i.channel
+    c = 0xFF4757
+
+    e1 = discord.Embed(title="📜 Clip Forge — Terms of Service & Rules", description=(
+        "By joining Clip Forge, you agree to follow these guidelines, "
+        "[Discord's Terms of Service](https://discord.com/terms), and our own Terms of Service.\n\n"
+        "1. **Be Respectful**\n"
+        "Treat everyone kindly and fairly, regardless of background, beliefs, or opinions. "
+        "Harassment, bullying, or discrimination based on race, ethnicity, gender, disability, "
+        "or any personal trait is strictly forbidden and will lead to immediate consequences.\n\n"
+        "2. **Keep It Safe and Friendly**\n"
+        "Sharing explicit, graphic, violent, or NSFW content is prohibited. "
+        "All content must be suitable for community members of all ages.\n\n"
+        "3. **No Fake Engagement or Botted Views**\n"
+        "Our system detects fake engagement and botted views in campaigns. If detected, "
+        "it will result in an immediate ban from all campaigns without warning. You are not "
+        "allowed to artificially boost views in any way, including paid ads on your own clips.\n\n"
+        "4. **No Spam or Disruptions**\n"
+        "Avoid sending repetitive, excessive, or irrelevant messages that disrupt "
+        "conversations or server activities.\n\n"
+        "5. **No Advertising or Self-Promotion**\n"
+        "Do not promote your business, service, product, or other Discord servers anywhere "
+        "in Clip Forge, including direct messages, without explicit permission from staff. "
+        "Unauthorized promotion results in an immediate ban."
+    ), color=c)
+    footer(e1)
+    await ch.send(embed=e1)
+
+    e2 = discord.Embed(description=(
+        "6. **Clickbait Within Limits**\n"
+        "Clickbait tactics are permitted to boost engagement, but clips must never portray "
+        "the client (brand, company, artist, creator) negatively or harm their reputation. "
+        "Always ensure your content maintains a positive and respectful representation.\n\n"
+        "7. **Respect Privacy**\n"
+        "Never share personal or private information about others without their explicit consent. "
+        "This includes real names, addresses, phone numbers, or any identifying details.\n\n"
+        "8. **No Illegal Activities**\n"
+        "Do not discuss, encourage, or engage in any illegal activities including hacking, "
+        "doxing, or actions violating real-world laws.\n\n"
+        "9. **No Raiding or Mass Reporting**\n"
+        "Planning, inciting, or participating in raids, or mass reporting of this or other "
+        "Discord servers or clipping pages is strictly prohibited and will result in immediate bans.\n\n"
+        "10. **No Impersonation**\n"
+        "Impersonating staff members or other community members is prohibited and will result "
+        "in immediate action."
+    ), color=c)
+    await ch.send(embed=e2)
+
+    e3 = discord.Embed(description=(
+        "11. **Clip Rejection Policy**\n"
+        "Both Clip Forge and our clients reserve the right to approve or reject any submitted "
+        "clip at our sole discretion. Approval is not final — a clip's verdict may be changed. "
+        "It is your responsibility to follow all campaign requirements and guidelines. "
+        "Only clips with a minimum engagement rate of 0.5% are eligible for approval.\n\n"
+        "12. **Keep Clips Live for 30 Days After Payment**\n"
+        "Once paid, your clips must stay live for **at least 30 days**. This helps clients "
+        "measure campaign impact and protects the integrity of the promotion. Taking clips "
+        "down early may result in bans or withheld access to future campaigns.\n\n"
+        "13. **Mark Clips as Paid Promotion**\n"
+        "All clips must follow **FTC guidelines** and be clearly marked as paid promotions "
+        "where required (e.g. using TikTok's branded content tools or writing "
+        '"ad"/"paid partnership" in the caption).\n\n'
+        "14. **Campaign Payment Accuracy**\n"
+        "During an active campaign, payment progress and percentages shown are estimates and "
+        "may not always be 100% accurate in real time. At campaign close, the final payment "
+        "is locked based on the client's actual budget. This does not remove money already "
+        "paid — it only removes projected earnings that exceeded the budget."
+    ), color=c)
+    await ch.send(embed=e3)
+
+    e4 = discord.Embed(description=(
+        "15. **One Account Per Person**\n"
+        "You are allowed only **one Discord account** linked to Clip Forge. Using alternate "
+        "accounts to bypass bans, earn extra, or manipulate campaigns will result in a "
+        "permanent ban across all accounts. Each social media account can only be connected "
+        "to one Discord account.\n\n"
+        "16. **Staff Decisions are Final**\n"
+        "Staff members reserve the right to enforce rules at their discretion and may ban "
+        "any member at any time if deemed necessary.\n\n"
+        "17. **Use Support Channels Appropriately**\n"
+        "Always open a support ticket for any issues or questions. General campaign-related "
+        "questions should be directed to the designated chat channels. Do not ask for help "
+        "on checking tickets faster or getting a response. We try to get to everyone as fast "
+        "as we can.\n\n"
+        "18. **Terms of Service Updates & Enforcement**\n"
+        "These Terms of Service may be updated, modified, or replaced at any time at Clip "
+        "Forge's sole discretion. It is your responsibility to stay up to date with the "
+        "latest version and any related guidelines we publish. These Terms of Service are "
+        "final and enforceable. If you fail to follow campaign rules, guidelines, or these "
+        "Terms of Service, we may be unable to pay you, regardless of prior participation.\n\n"
+        "19. **Ask Staff if Unsure**\n"
+        "If you are uncertain about any rule or whether specific content is allowed, "
+        "please reach out to a staff member before posting.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "**Last updated:** March 2026\n\n"
+        "Thanks for helping keep Clip Forge a clean, compliant, and money-making machine. 🔥"
+    ), color=c)
+    footer(e4)
+    await ch.send(embed=e4)
+
+    await i.followup.send("✅ Rules posted!", ephemeral=True)
+
+
+@bot.tree.command(name="postfaq", description="[Admin] Post campaign FAQs")
+@app_commands.checks.has_permissions(administrator=True)
+async def s_postfaq(i: discord.Interaction):
+    await i.response.defer(ephemeral=True)
+    ch = i.channel
+    c = 0x0099FF
+
+    e1 = discord.Embed(title="❓ Clip Forge — Campaign FAQs", description=(
+        "**How do campaigns work?**\n"
+        "We partner with artists, brands, and creators. You create short-form clips "
+        "promoting their content on TikTok, Instagram, YouTube, or X. We track your views "
+        "and pay you based on performance.\n\n"
+        "**How do I join a campaign?**\n"
+        "Go to any active campaign channel and click **Submit post**. Select your verified "
+        "account and paste your clip URL. That's it.\n\n"
+        "**How are views counted?**\n"
+        "Staff reviews and updates views for each submission. Views are tracked from the "
+        "moment you submit your post.\n\n"
+        "**When do I get paid?**\n"
+        "Payouts are processed after campaign review. You'll receive a DM when payment is sent.\n\n"
+        "**What's the payment rate?**\n"
+        "Each campaign has its own rate (e.g. $2 per 1,000 views). Check the campaign "
+        "announcement for details."
+    ), color=c)
+    footer(e1)
+    await ch.send(embed=e1)
+
+    e2 = discord.Embed(description=(
+        "**Can I submit the same clip to multiple campaigns?**\n"
+        "No. Each clip URL can only be submitted once across all campaigns.\n\n"
+        "**Can I submit multiple clips to one campaign?**\n"
+        "Yes, up to the daily limit set by each campaign.\n\n"
+        "**What platforms are accepted?**\n"
+        "YouTube, TikTok, Instagram, and X (Twitter). Each campaign may specify which "
+        "platforms are allowed.\n\n"
+        "**My views aren't updating?**\n"
+        "Views are updated by staff. If you think there's an error, open a support ticket.\n\n"
+        "**Can I delete my clip after getting paid?**\n"
+        "No. Clips must stay live for at least **30 days** after payment. Removing clips "
+        "early may result in bans.\n\n"
+        "**What if my clip gets rejected?**\n"
+        "If your clip is rejected, open a support ticket to understand why. "
+        "Staff will review and guide you on what to fix before resubmitting.\n\n"
+        "**How do I connect my social accounts?**\n"
+        "Go to #connect-socials → Click **Link Account** → Follow the verification steps.\n\n"
+        "**Still have questions?**\n"
+        "Open a support ticket and our team will help you out!"
+    ), color=c)
+    footer(e2)
+    await ch.send(embed=e2)
+
+    await i.followup.send("✅ FAQs posted!", ephemeral=True)
+
+
+@bot.tree.command(name="postguide", description="[Admin] Post getting started guide")
+@app_commands.checks.has_permissions(administrator=True)
+async def s_postguide(i: discord.Interaction):
+    await i.response.defer(ephemeral=True)
+    ch = i.channel
+    c = 0x00FFFF
+
+    e1 = discord.Embed(title="🔥 Clip Forge — Getting Started Guide", description=(
+        "Welcome to Clip Forge! Here's how to set up your account and start earning.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "**Step 1 — Connect Your Socials** 🔗\n"
+        "Head to **#connect-socials** and click **Link Account**. Choose your platform "
+        "(YouTube, TikTok, Instagram, or X), enter your username and profile URL, "
+        "then verify by adding a code to your bio. Once verified, your account is connected.\n\n"
+        "**Step 2 — Complete Account Setup** ⚡\n"
+        "Go to **#your-profile** and click **Setup**. Select your country and choose your "
+        "preferred payment method (PayPal, UPI, Bank Transfer, or Crypto). "
+        "This is where your earnings will be sent.\n\n"
+        "**Step 3 — Join Active Campaigns** 🎯\n"
+        "Check the active campaign channels. Read the campaign details — pay rate, platform, "
+        "and guidelines. Click **Submit post** and paste your clip URL to enter."
+    ), color=c)
+    footer(e1)
+    await ch.send(embed=e1)
+
+    e2 = discord.Embed(description=(
+        "**Step 4 — Create & Post Clips** 📹\n"
+        "Create engaging short-form content based on the campaign brief. Post it on the "
+        "required platform. Submit the link right after publishing to ensure all views "
+        "count towards your rewards.\n\n"
+        "**Step 5 — Track Your Earnings** 📊\n"
+        "Go to **#your-profile** and click **Profile** to see your stats, connected accounts, "
+        "and tier. Click **Earnings** to see your total, pending, and paid amounts. "
+        "In any campaign, click **Stats** for a detailed breakdown.\n\n"
+        "**Step 6 — Get Paid** 💸\n"
+        "Once your views are verified and the campaign is reviewed, admin will process "
+        "your payout. You'll receive a DM confirmation when payment is sent.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "**📌 Where to Go:**\n"
+        "🔗 **#connect-socials** — Link & verify your accounts\n"
+        "👤 **#your-profile** — View profile, earnings, setup\n"
+        "🎖️ **#tier-verification** — Check & verify your tier\n"
+        "🎯 **Campaign channels** — Submit clips & earn\n"
+        "🎫 **#support** — Open a ticket if you need help\n\n"
+        "Everything works with **buttons** — just click and follow the steps! 🚀"
+    ), color=c)
+    footer(e2)
+    await ch.send(embed=e2)
+
+    await i.followup.send("✅ Guide posted!", ephemeral=True)
+
 
 # ═══════════════ VIEW MANAGEMENT ═══════════════
 
