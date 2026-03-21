@@ -15,6 +15,10 @@ from datetime import datetime, timedelta
 # ═══════════════════════════════════════════
 
 MAIN_COLOR = 0x2C3E6B  # Navy Blue — used everywhere
+GREEN = 0x00D26A
+RED = 0xFF4757
+ORANGE = 0xFF8C00
+GOLD = 0xFFD700
 DATABASE_URL = os.getenv("DATABASE_URL")
 TOKEN = os.getenv("DISCORD_TOKEN")
 FOOTER = "Clip Forge • clip.tech"
@@ -961,7 +965,7 @@ class TicketControlView(discord.ui.View):
             description=f"**Claimed by:** {interaction.user.mention}\n**Category:** {cat_info['label']}\n\nStaff is now handling this ticket.",
             color=GREEN
         )
-        footer(claim_embed)
+        ft(claim_embed)
         await interaction.response.send_message(embed=claim_embed)
 
         # DM the user
@@ -977,7 +981,7 @@ class TicketControlView(discord.ui.View):
                 ),
                 color=GREEN
             )
-            footer(dm_embed)
+            ft(dm_embed)
             await user.send(embed=dm_embed)
         except:
             pass
@@ -1016,7 +1020,7 @@ class TicketControlView(discord.ui.View):
                     ),
                     color=RED
                 )
-                footer(dm_embed)
+                ft(dm_embed)
                 await user.send(embed=dm_embed)
             except:
                 pass
@@ -1064,7 +1068,7 @@ class TicketReplyModal(discord.ui.Modal):
             description=f"**From:** {interaction.user.mention}\n\n{self.reply_text.value}",
             color=CYAN
         )
-        footer(reply_embed)
+        ft(reply_embed)
         await interaction.response.send_message(embed=reply_embed)
 
         # DM the user
@@ -1080,7 +1084,7 @@ class TicketReplyModal(discord.ui.Modal):
                 ),
                 color=CYAN
             )
-            footer(dm_embed)
+            ft(dm_embed)
             await user.send(embed=dm_embed)
         except:
             pass
@@ -1545,6 +1549,8 @@ class SuggestionModal(discord.ui.Modal):
         self.add_item(self.suggestion)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message("✅ Suggestion submitted! Others can vote on it.", ephemeral=True)
+
         embed = discord.Embed(
             title="💡 New Suggestion",
             description=self.suggestion.value,
@@ -1556,8 +1562,6 @@ class SuggestionModal(discord.ui.Modal):
         msg = await interaction.channel.send(embed=embed)
         await msg.add_reaction("👍")
         await msg.add_reaction("👎")
-
-        await interaction.response.send_message("✅ Suggestion submitted! Others can vote on it.", ephemeral=True)
 
 @bot.tree.command(name="postsuggestions", description="[Admin] Post suggestions panel")
 @app_commands.checks.has_permissions(administrator=True)
@@ -1578,7 +1582,7 @@ async def s_postsuggestions(i: discord.Interaction):
         ),
         color=0xFFD700
     )
-    footer(embed)
+    ft(embed)
     await i.channel.send(embed=embed, view=SuggestionView())
     await i.response.send_message("✅ Suggestions panel posted!", ephemeral=True)
 
@@ -1586,9 +1590,7 @@ async def s_postsuggestions(i: discord.Interaction):
 
 @bot.tree.command(name="postrules", description="[Admin] Post all server rules")
 @app_commands.checks.has_permissions(administrator=True)
-async def s_postrules(i: discord.Interaction):
-    await i.response.defer(ephemeral=True)
-    ch = i.channel
+async def s_postrules_logic(ch):
     c = 0xFF4757
 
     e1 = discord.Embed(title="📜 Clip Forge — Terms of Service & Rules", description=(
@@ -1613,7 +1615,7 @@ async def s_postrules(i: discord.Interaction):
         "in Clip Forge, including direct messages, without explicit permission from staff. "
         "Unauthorized promotion results in an immediate ban."
     ), color=c)
-    footer(e1)
+    ft(e1)
     await ch.send(embed=e1)
 
     e2 = discord.Embed(description=(
@@ -1685,17 +1687,20 @@ async def s_postrules(i: discord.Interaction):
         "**Last updated:** March 2026\n\n"
         "Thanks for helping keep Clip Forge a clean, compliant, and money-making machine. 🔥"
     ), color=c)
-    footer(e4)
+    ft(e4)
     await ch.send(embed=e4)
 
+@bot.tree.command(name="postrules", description="[Admin] Post all server rules")
+@app_commands.checks.has_permissions(administrator=True)
+async def s_postrules(i: discord.Interaction):
+    await i.response.defer(ephemeral=True)
+    await s_postrules_logic(i.channel)
     await i.followup.send("✅ Rules posted!", ephemeral=True)
 
 
 @bot.tree.command(name="postfaq", description="[Admin] Post campaign FAQs")
 @app_commands.checks.has_permissions(administrator=True)
-async def s_postfaq(i: discord.Interaction):
-    await i.response.defer(ephemeral=True)
-    ch = i.channel
+async def s_postfaq_logic(ch):
     c = 0x0099FF
 
     e1 = discord.Embed(title="❓ Clip Forge — Campaign FAQs", description=(
@@ -1715,7 +1720,7 @@ async def s_postfaq(i: discord.Interaction):
         "Each campaign has its own rate (e.g. $2 per 1,000 views). Check the campaign "
         "announcement for details."
     ), color=c)
-    footer(e1)
+    ft(e1)
     await ch.send(embed=e1)
 
     e2 = discord.Embed(description=(
@@ -1739,17 +1744,20 @@ async def s_postfaq(i: discord.Interaction):
         "**Still have questions?**\n"
         "Open a support ticket and our team will help you out!"
     ), color=c)
-    footer(e2)
+    ft(e2)
     await ch.send(embed=e2)
 
+@bot.tree.command(name="postfaq", description="[Admin] Post campaign FAQs")
+@app_commands.checks.has_permissions(administrator=True)
+async def s_postfaq(i: discord.Interaction):
+    await i.response.defer(ephemeral=True)
+    await s_postfaq_logic(i.channel)
     await i.followup.send("✅ FAQs posted!", ephemeral=True)
 
 
 @bot.tree.command(name="postguide", description="[Admin] Post getting started guide")
 @app_commands.checks.has_permissions(administrator=True)
-async def s_postguide(i: discord.Interaction):
-    await i.response.defer(ephemeral=True)
-    ch = i.channel
+async def s_postguide_logic(ch):
     c = 0x00FFFF
 
     e1 = discord.Embed(title="🔥 Clip Forge — Getting Started Guide", description=(
@@ -1767,7 +1775,7 @@ async def s_postguide(i: discord.Interaction):
         "Check the active campaign channels. Read the campaign details — pay rate, platform, "
         "and guidelines. Click **Submit post** and paste your clip URL to enter."
     ), color=c)
-    footer(e1)
+    ft(e1)
     await ch.send(embed=e1)
 
     e2 = discord.Embed(description=(
@@ -1791,9 +1799,14 @@ async def s_postguide(i: discord.Interaction):
         "🎫 **#support** — Open a ticket if you need help\n\n"
         "Everything works with **buttons** — just click and follow the steps! 🚀"
     ), color=c)
-    footer(e2)
+    ft(e2)
     await ch.send(embed=e2)
 
+@bot.tree.command(name="postguide", description="[Admin] Post getting started guide")
+@app_commands.checks.has_permissions(administrator=True)
+async def s_postguide(i: discord.Interaction):
+    await i.response.defer(ephemeral=True)
+    await s_postguide_logic(i.channel)
     await i.followup.send("✅ Guide posted!", ephemeral=True)
 
 
@@ -1841,7 +1854,7 @@ async def s_listclips(i: discord.Interaction, user: discord.User):
         s = "✅" if cl["status"]=="paid" else "⏳" if cl["status"]=="pending" else "🔍"
         t += f"**#{cl['id']}** {e} {s} {cl['views']:,} views — ${cl['views']*rate:.2f}\n`{cl['url'][:50]}`\n"
     embed = discord.Embed(title=f"📋 {user.name}'s Clips", description=t, color=DARK_BLUE)
-    footer(embed)
+    ft(embed)
     await i.response.send_message(embed=embed)
 
 # ═══════════════ LEGACY ═══════════════
@@ -1868,6 +1881,60 @@ async def c_setup(ctx):
     await ensure_user(ctx.author)
     e = emb("⚡ Setup", "Select your country and payment method.")
     await ctx.send(embed=e, view=SetupStartView())
+
+@bot.command(name="postrules")
+@commands.has_permissions(administrator=True)
+async def c_postrules(ctx):
+    await s_postrules_logic(ctx.channel)
+    await ctx.message.delete()
+
+@bot.command(name="postfaq")
+@commands.has_permissions(administrator=True)
+async def c_postfaq(ctx):
+    await s_postfaq_logic(ctx.channel)
+    await ctx.message.delete()
+
+@bot.command(name="postguide")
+@commands.has_permissions(administrator=True)
+async def c_postguide(ctx):
+    await s_postguide_logic(ctx.channel)
+    await ctx.message.delete()
+
+@bot.command(name="postpanel")
+@commands.has_permissions(administrator=True)
+async def c_postpanel(ctx):
+    e = emb("🔗 Manage Your Social Accounts", "Use the buttons below to manage your account.\n\n**🔗 Link Account**\nConnect your social media page.\n\n**👥 View Accounts**\nView your connected accounts, views & earnings.")
+    await ctx.channel.send(embed=e, view=ConnectSocialsView())
+    await ctx.message.delete()
+
+@bot.command(name="postprofile")
+@commands.has_permissions(administrator=True)
+async def c_postprofile(ctx):
+    e = emb("👤 Your Profile", "View your stats, earnings, and manage your account.\n\n**👤 My Profile** — Stats, socials, tier\n**💰 Earnings** — Total, pending, paid\n**🏆 Leaderboard** — Top earners\n**⚡ Setup** — Country & payment")
+    await ctx.channel.send(embed=e, view=ProfilePanelView())
+    await ctx.message.delete()
+
+@bot.command(name="posttier")
+@commands.has_permissions(administrator=True)
+async def c_posttier(ctx):
+    e = emb("🎖️ Tier Verification", "Verify your tier to unlock rewards!\n\n**🎖️ Verify My Tier**\nSelect your account and upload analytics.\nStaff will review within 48 hours.\n\n**📋 My Tier Status**\nCheck your current tier.\n\n━━━━━━━━━━━━━━━━━━━━━\n\n🥉 **Bronze** — 1,000+ views\n🥈 **Silver** — 10,000+ views\n🥇 **Gold** — 50,000+ views\n💎 **Diamond** — 100,000+ views")
+    await ctx.channel.send(embed=e, view=TierVerifyView())
+    await ctx.message.delete()
+
+@bot.command(name="postticket")
+@commands.has_permissions(administrator=True)
+async def c_postticket(ctx):
+    e = emb("🎫 Support", "Need help? Select a category below to open a ticket.\nA private channel will be created for you and staff.")
+    await ctx.channel.send(embed=e, view=TicketView())
+    await ctx.message.delete()
+
+@bot.command(name="postsuggestions")
+@commands.has_permissions(administrator=True)
+async def c_postsuggestions(ctx):
+    e = discord.Embed(title="💡 Suggestions", description="Have an idea to make Clip Forge better?\n\nClick the button below to submit your suggestion.\nOther members can vote with 👍 or 👎.\n\n**Good suggestions include:**\n• New features\n• Campaign improvements\n• Server improvements\n• Payment system ideas\n\nTop voted suggestions will be reviewed by staff! ⭐", color=0xFFD700)
+    ft(e)
+    await ctx.channel.send(embed=e, view=SuggestionView())
+    await ctx.message.delete()
 
 # ═══════════════ START ═══════════════
 
