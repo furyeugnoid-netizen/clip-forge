@@ -1846,10 +1846,28 @@ async def s_listclips(i: discord.Interaction, user: discord.User):
 
 # ═══════════════ LEGACY ═══════════════
 
+@bot.command(name="home")
+async def c_home(ctx):
+    await ensure_user(ctx.author)
+    e = emb("🔥 Clip Forge", f"Welcome, **{ctx.author.display_name}**!\nUse the buttons below to navigate.")
+    e.set_thumbnail(url=ctx.author.display_avatar.url if ctx.author.display_avatar else None)
+    await ctx.send(embed=e, view=ProfilePanelView())
+
 @bot.command(name="help")
-@commands.has_permissions(administrator=True)
 async def c_help(ctx):
     await ctx.send(embed=build_help())
+
+@bot.command(name="profile")
+async def c_profile(ctx):
+    await ensure_user(ctx.author)
+    e = await build_full_profile(ctx.author)
+    await ctx.send(embed=e, view=ProfileActionView(ctx.author.id))
+
+@bot.command(name="setup")
+async def c_setup(ctx):
+    await ensure_user(ctx.author)
+    e = emb("⚡ Setup", "Select your country and payment method.")
+    await ctx.send(embed=e, view=SetupStartView())
 
 # ═══════════════ START ═══════════════
 
