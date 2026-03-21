@@ -1588,8 +1588,6 @@ async def s_postsuggestions(i: discord.Interaction):
 
 # ═══════════════ RULES / FAQ / GUIDE ═══════════════
 
-@bot.tree.command(name="postrules", description="[Admin] Post all server rules")
-@app_commands.checks.has_permissions(administrator=True)
 async def s_postrules_logic(ch):
     c = 0xFF4757
 
@@ -1698,8 +1696,6 @@ async def s_postrules(i: discord.Interaction):
     await i.followup.send("✅ Rules posted!", ephemeral=True)
 
 
-@bot.tree.command(name="postfaq", description="[Admin] Post campaign FAQs")
-@app_commands.checks.has_permissions(administrator=True)
 async def s_postfaq_logic(ch):
     c = 0x0099FF
 
@@ -1755,8 +1751,6 @@ async def s_postfaq(i: discord.Interaction):
     await i.followup.send("✅ FAQs posted!", ephemeral=True)
 
 
-@bot.tree.command(name="postguide", description="[Admin] Post getting started guide")
-@app_commands.checks.has_permissions(administrator=True)
 async def s_postguide_logic(ch):
     c = 0x00FFFF
 
